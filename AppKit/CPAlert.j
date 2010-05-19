@@ -71,6 +71,13 @@ var CPAlertWarningImage,
     dismissed the panel, a message will be sent to the panel's delegate (if set), informing
     it which button was clicked (see delegate methods).
 
+    The panel can also be displayed as a sheet by calling
+    \c -beginSheetModalForWindow:modalDelegate:didEndSelector:contextInof: and once the user has
+    dismissed the panel, a message will be sent to the passed modal delegate, informing
+    it which button was clicked by means of the passed selector. The \c didEndSelector should be
+    in the format
+    \c -(void)didEnd:(CPAlert)theAlert returnCore:(int)returnCode contextInfo:(id)contextInfo.
+
     @delegate -(void)alertDidEnd:(CPAlert)theAlert returnCode:(int)returnCode;
     Called when the user dismisses the alert by clicking one of the buttons.
     @param theAlert the alert panel that the user dismissed
@@ -91,7 +98,8 @@ var CPAlertWarningImage,
     int             _buttonCount;
     CPArray         _buttons;
 
-    id              _delegate;
+    id              _modalDelegate;
+	SEL				_modalSelector;
 }
 
 + (void)initialize
@@ -136,7 +144,7 @@ var CPAlertWarningImage,
 {
     _windowStyle = styleMask;
     
-    _alertPanel = [[CPPanel alloc] initWithContentRect:CGRectMake(0.0, 0.0, 400.0, 110.0) styleMask:styleMask ? styleMask | CPTitledWindowMask : CPTitledWindowMask];
+    _alertPanel = [[CPPanel alloc] initWithContentRect:CGRectMake(0.0, 0.0, 400.0, 110.0) styleMask:(styleMask ? styleMask | CPTitledWindowMask : CPTitledWindowMask) | CPDocModalWindowMask];
     [_alertPanel setFloatingPanel:YES];
     [_alertPanel center];
 
@@ -264,7 +272,7 @@ var CPAlertWarningImage,
     [button setTag:_buttonCount];
     [button setAction:@selector(_notifyDelegate:)];
     
-    [button setTheme:(_windowStyle === CPHUDBackgroundWindowMask) ? [CPTheme themeNamed:"Aristo-HUD"] : [CPTheme defaultTheme]];
+    [button setTheme:(_windowStyle & CPHUDBackgroundWindowMask) ? [CPTheme themeNamed:"Aristo-HUD"] : [CPTheme defaultTheme]];
     [button setAutoresizingMask:CPViewMinXMargin | CPViewMinYMargin];
 
     [[_alertPanel contentView] addSubview:button];
@@ -303,14 +311,57 @@ var CPAlertWarningImage,
     [CPApp runModalForWindow:_alertPanel];
 }
 
+/*!
+    Displays the \c CPAlert panel as a modal sheet. The user will not be
+    able to interact with any other controls until s/he has dismissed the alert
+    by clicking on one of the buttons.
+*/
+- (void)beginSheetModalForWindow:(CPWindow)aWindow modalDelegate:(id)aDel didEndSelector:(SEL)aSelector contextInfo:(id)aInfo {
+	_modalDelegate = aDel;
+	_modalSelector = aSelector;
+	
+	var theTitle;
+	
+	switch(_alertStyle) {
+		case CPWarningAlertStyle:		[_alertImageView setImage:CPAlertWarningImage];
+										theTitle = @"Warning";
+										break;
+		case CPInformationalAlertStyle:	[_alertImageView setImage:CPAlertInformationImage];
+										theTitle = @"Information";
+										break;
+		case CPCriticalAlertStyle:		[_alertImageView setImage:CPAlertErrorImage];
+										theTitle = @"Error";
+										break;
+	}
+	
+	[_alertPanel setTitle:_windowTitle ? _windowTitle : theTitle];
+	
+	[CPApp beginSheet:_alertPanel modalForWindow:aWindow modalDelegate:self didEndSelector:@selector(sheetDidEnd:returnCode:contextInfo:) contextInfo:aInfo];
+}
+
+/* @ignore */
+- (void)sheetDidEnd:(CPWindow)sheet returnCode:(int)returnCode contextInfo:(id)contextInfo {
+	if(_selector && _delegate) {
+		var imp = [_delegate methodForSelector:_selector];
+		
+		imp(_delegate, _selector, self, returnCode, contextInfo);
+	}
+	
+	[_alertPanel close];
+}
+
 /* @ignore */
 - (void)_notifyDelegate:(id)button
 {
-    [CPApp abortModal];
-    [_alertPanel close];
-
-    if (_delegate && [_delegate respondsToSelector:@selector(alertDidEnd:returnCode:)])
-        [_delegate alertDidEnd:self returnCode:[button tag]];
+	if([_alertPanel isSheet]) {
+	    [CPApp abortModal];
+	    [_alertPanel close];
+	
+	    if (_delegate && [_delegate respondsToSelector:@selector(alertDidEnd:returnCode:)])
+	        [_delegate alertDidEnd:self returnCode:[button tag]];
+	} else {
+		[CPApp endSheet:_alertPanel returnCode:[button tag]];
+	}
 }
 
 @end
